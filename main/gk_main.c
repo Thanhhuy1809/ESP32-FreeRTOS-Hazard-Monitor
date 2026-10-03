@@ -139,8 +139,8 @@ static void vButtonTask(void *pvParameters) {
         // Ngủ đông cho đến khi có ngắt phần cứng (Interrupt)
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         
-        // Chống rung 50ms (Đã trả lại tốc độ bấm nhạy như chớp)
-        vTaskDelay(pdMS_TO_TICKS(50)); 
+        // Chống rung 500ms (Nhấn giữ nửa giây để kích hoạt)
+        vTaskDelay(pdMS_TO_TICKS(500)); 
         
         if (gpio_get_level(PIN_BUTTON) == 0) {
             xQueueSendToBack(xAlarmQueue, &cmd, 0);
