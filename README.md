@@ -19,12 +19,43 @@ Hệ thống được thiết kế chuẩn cấu trúc FreeRTOS (Task & Queue Ma
 | **MPU6050** | `SDA` | `GPIO 4` | Giao tiếp I2C. |
 | **MPU6050** | `SCL` | `GPIO 5` | Giao tiếp I2C. |
 
-## 🏗 Cấu trúc FreeRTOS
-Hệ thống gồm 4 Task chạy đa nhiệm song song và giao tiếp qua 1 Queue (`xAlarmQueue`):
-1. `vControllerTask` (Priority 4): Xử lý trung tâm. Chặn (Block) chờ tín hiệu từ Queue để đóng/mở còi báo động.
-2. `vFastSensorTask` (Priority 3): Quét MPU6050 và MQ2 ở tốc độ cao (100ms/lần). Đẩy cờ báo động vào Queue nếu phát hiện nguy hiểm.
-3. `vButtonTask` (Priority 3): Quét nút bấm (50ms/lần), xử lý Debounce 1 giây và đẩy lệnh Toggle vào Queue.
-4. `vDhtTask` (Priority 2): Đo nhiệt độ, độ ẩm mỗi 2 giây, in báo cáo tổng hợp ra Terminal và kích hoạt báo cháy nếu nhiệt độ cao.
+## 🏗 Cấu trúc FreeRTOS (Task & Queue)
+Hệ thống sử dụng cơ chế **Pre-emptive Scheduling**, gồm 3 Task chạy đa nhiệm song song và giao tiếp qua 1 Queue (`xAlarmQueue`):
+
+| Priority | Tên Task | Kiểu hoạt động (Type) | Chu kỳ / Kích hoạt | Nhiệm vụ chính |
+| :--- | :--- | :--- | :--- | :--- |
+| **3** | `vControllerTask` | Event-driven | Chờ tín hiệu từ **Alarm Queue** | Bật/tắt còi Buzzer ngay lập tức |
+| **2** | `vButtonTask` | Event-driven | Ngắt phần cứng (**GPIO Interrupt**) | Kích hoạt báo động bằng tay (Có Debounce 500ms) |
+| **1** | `vSensorTask` | Periodic | Định kỳ **100 ms** | Đọc MQ-2, MPU6050 (mỗi 100ms) & DHT22 (mỗi 2000ms) |
+| **0** | `Idle Task` | Background | Liên tục (Continuous) | Dọn dẹp bộ nhớ khi CPU rảnh rỗi |
+
+### 📊 Biểu đồ thời gian (Timing Diagram)
+
+```mermaid
+gantt
+    title Biểu đồ mô phỏng Thời gian thực thi & Pre-emption (Hệ thống Báo Cháy)
+    dateFormat  X
+    axisFormat %s
+    
+    section vCtrlTask (Pri 3)
+    Nhận Queue & Bật Còi (Pre-empts Pri 1) :crit, active, ctrl1, 4, 1s
+    
+    section vButton (Pri 2)
+    Ngắt nút bấm xảy ra (Pre-empts Pri 1)  :active, btn1, 8, 1s
+    
+    section vSensor (Pri 1)
+    Quét cảm biến (Pre-empts Idle)         :active, sens1, 2, 1s
+    Phát hiện Gas & Gửi Queue              :active, sens2, 3, 1s
+    Bị cắt ngang bởi vCtrlTask             :milestone, 4, 0s
+    Hoàn tất (Resumes)                     :active, sens3, 5, 1s
+    Đọc Nhiệt độ (Lần thứ 20)              :active, sens4, 6, 2s
+    Bị cắt ngang bởi Ngắt Button           :milestone, 8, 0s
+    In Terminal (Resumes)                  :active, sens5, 9, 1s
+    
+    section Idle Task (Pri 0)
+    Chạy nền                               :0, 2s
+    Chạy nền                               :10, 2s
+```
 
 ## 🚀 Kết quả Terminal
 Dưới đây là hình ảnh Terminal theo dõi dữ liệu mượt mà, không bị nhiễu (Floating pin đã được xử lý triệt để):
