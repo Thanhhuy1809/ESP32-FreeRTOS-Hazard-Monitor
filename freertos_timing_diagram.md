@@ -46,7 +46,7 @@ gantt
 * **`t2`**: Tới chu kỳ 100ms, **`vSensorTask` (Pri 1)** thức dậy. Vì Pri 1 > Pri 0, nó *pre-empts* (chiếm quyền) Idle task để đọc Khói và Rung chấn.
 * **`t3`**: **`vSensorTask`** phát hiện nồng độ Gas vượt ngưỡng 2000! Nó lập tức dùng lệnh `xQueueSend` để nhét thư cảnh báo vào Queue.
 * **Ngay tại `t4`**: Ngay khi thư vào Queue, **`vControllerTask` (Pri 3)** vốn đang ngủ đông lập tức tỉnh dậy. Vì Pri 3 là mức cao nhất hệ thống, nó *pre-empts* luôn cả `vSensorTask` đang chạy!
-* **`t4 - t5`**: **`vControllerTask`** chiếm CPU, bật điện cho còi Buzzer kêu, in dòng chữ `[ALARM]` ra màn hình. Xong việc, nó quay lại trạng thái Block.
+* **`t4 - t5`**: **`vControllerTask`** chiếm CPU, bật điện cho còi Buzzer kêu, in dòng chữ `[ALARM]` ra Terminal (VS Code). Xong việc, nó quay lại trạng thái Block.
 * **`t5 - t6`**: CPU được trả lại cho **`vSensorTask`**. Nó hoàn tất chu kỳ quét.
 * **`t6 - t8`**: Luồng **`vSensorTask`** (ở chu kỳ thứ 20) bắt đầu gọi hàm đọc DHT22 (việc này tốn thời gian).
 * **`t8`**: Bất thình lình người dùng nhấn nút! Phần cứng sinh ra một Ngắt (GPIO Interrupt) đánh thức **`vButtonTask` (Pri 2)**. Vì Pri 2 > Pri 1, `vButtonTask` cắt ngang `vSensorTask` để xử lý ngắt, chống rung và gửi lệnh Queue.
