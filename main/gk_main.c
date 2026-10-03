@@ -240,8 +240,8 @@ void app_main(void) {
     }
 
     // TẠO CÁC TASK (Chương 4)
-    xTaskCreate(vDhtTask, "DhtTask", 3072, NULL, 2, NULL);
-    xTaskCreate(vFastSensorTask, "FastSensor", 3072, NULL, 3, NULL);
-    xTaskCreate(vButtonTask, "ButtonTask", 2048, NULL, 3, NULL);
-    xTaskCreate(vControllerTask, "CtrlTask", 2048, NULL, 4, NULL); // Ưu tiên cao nhất để xử lý lệnh kịp thời
+    xTaskCreate(vDhtTask, "DhtTask", 3072, NULL, 1, NULL); // Đã hạ xuống Pri 1
+    xTaskCreate(vButtonTask, "ButtonTask", 2048, NULL, 2, NULL); // Đã hạ xuống Pri 2
+    xTaskCreate(vFastSensorTask, "FastSensor", 3072, NULL, 3, NULL); // Giữ nguyên Pri 3
+    xTaskCreate(vControllerTask, "CtrlTask", 2048, NULL, 4, NULL); // Cao nhất Pri 4
 }
