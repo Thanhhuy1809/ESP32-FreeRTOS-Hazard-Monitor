@@ -4,7 +4,7 @@
 #include <string.h>
 #include "driver/gpio.h"
 #include "driver/i2c.h"
-#include "esp_adc/adc_oneshot.h" // Thêm thư viện ADC
+#include "esp_adc/adc_oneshot.h" 
 #include "esp_err.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
@@ -17,14 +17,13 @@
 
 #define DHT22_TIMEOUT_US 120
 #define VIBRATION_THRESHOLD 1.5f
-#define MQ2_ADC_THRESHOLD 2000 // Ngưỡng khí gas (0 - 4095)
+#define MQ2_ADC_THRESHOLD 2000 
 
 static mpu6050_dev_t mpu;
 static adc_oneshot_unit_handle_t adc1_handle;
-volatile int g_mq2_raw = 0; // Biến toàn cục lưu giá trị Gas
-
-// Queue giao tiếp giữa các Task (Chương 5)
+volatile int g_mq2_raw = 0; 
 static QueueHandle_t xAlarmQueue = NULL;
+static TaskHandle_t xButtonTaskHandle = NULL;
 
 // --- HÀM ĐỌC DHT22 ---
 static bool prvDht22WaitWhileLevel(int level, uint32_t *duration_us) {
@@ -71,109 +70,96 @@ static bool prvDht22Read(float *temperature, float *humidity) {
     return true;
 }
 
-// --- TASK ĐỌC DHT22 & IN THÔNG TIN ---
-static void vDhtTask(void *pvParameters) {
-    TickType_t xLastWakeTime = xTaskGetTickCount();
-    for (;;) {
-        float temp = 0.0f, hum = 0.0f;
-        if (prvDht22Read(&temp, &hum)) {
-            printf("[THONG TIN] Nhiet do: %.1f C, Do am: %.1f %%, ", temp, hum);
-            
-            if (temp > 60.0f) {
-                printf("\n[DHT22] CANH BAO CHAY! NHIET DO CAO: %.1f C\n", temp);
-                AlarmCmd_t cmd = CMD_TRIGGER_ALARM;
-                xQueueSendToBack(xAlarmQueue, &cmd, 0);
-            }
-        } else {
-            printf("[THONG TIN] Loi doc DHT22, ");
-        }
-
-        // In giá trị ADC của Gas
-        int gas_val = g_mq2_raw;
-        if (gas_val > MQ2_ADC_THRESHOLD) {
-            printf("Khi Gas: %d (CO KHOI), ", gas_val);
-        } else {
-            printf("Khi Gas: %d (An Toan), ", gas_val);
-        }
-        
-        mpu6050_acceleration_t accel;
-        if (mpu6050_get_acceleration(&mpu, &accel) == ESP_OK) {
-            float total_accel = sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z);
-            printf("Gia toc: %.2fg\n", total_accel);
-        } else {
-            printf("Gia toc: Loi\n");
-        }
-        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(2000));
-    }
-}
-
-// --- TASK RUNG CHẤN & KHÍ GAS ---
-static void vFastSensorTask(void *pvParameters) {
+// --- TASK TỔNG HỢP (vSensorTask - Priority 1, Chu kỳ 100ms) ---
+static void vSensorTask(void *pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
     AlarmCmd_t cmd = CMD_TRIGGER_ALARM;
+    int dht_counter = 0;
 
     for (;;) {
         bool hazard_detected = false;
 
-        // Đọc MQ2 bằng ADC
+        // 1. Đọc MQ2 bằng ADC
         int adc_raw = 0;
         if (adc_oneshot_read(adc1_handle, ADC_CHANNEL_0, &adc_raw) == ESP_OK) {
             g_mq2_raw = adc_raw;
-            if (adc_raw > MQ2_ADC_THRESHOLD) {
-                hazard_detected = true;
-            }
+            if (adc_raw > MQ2_ADC_THRESHOLD) hazard_detected = true;
         }
 
-        // Đọc MPU6050
+        // 2. Đọc MPU6050
         mpu6050_acceleration_t accel;
+        float total_accel = 1.0f;
         if (mpu6050_get_acceleration(&mpu, &accel) == ESP_OK) {
-            float total_accel = sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z);
-            if (total_accel > VIBRATION_THRESHOLD || total_accel < 0.5f) {
-                hazard_detected = true;
-            }
+            total_accel = sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z);
+            if (total_accel > VIBRATION_THRESHOLD || total_accel < 0.5f) hazard_detected = true;
         }
 
-        // Gửi lệnh qua Queue nếu có nguy hiểm
         if (hazard_detected) {
-            xQueueSendToBack(xAlarmQueue, &cmd, 0); // Non-blocking send
+            xQueueSendToBack(xAlarmQueue, &cmd, 0); 
         }
 
-        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(100));
+        // 3. Đọc DHT22 (Dùng bộ đếm để chỉ đọc mỗi 2000ms = 20 x 100ms)
+        dht_counter++;
+        if (dht_counter >= 20) {
+            dht_counter = 0;
+            float temp = 0.0f, hum = 0.0f;
+            if (prvDht22Read(&temp, &hum)) {
+                printf("[THONG TIN] Nhiet do: %.1f C, Do am: %.1f %%, ", temp, hum);
+                if (temp > 60.0f) {
+                    printf("\n[DHT22] CANH BAO CHAY! NHIET DO CAO: %.1f C\n", temp);
+                    xQueueSendToBack(xAlarmQueue, &cmd, 0);
+                }
+            } else {
+                printf("[THONG TIN] Loi doc DHT22, ");
+            }
+            if (g_mq2_raw > MQ2_ADC_THRESHOLD) {
+                printf("Khi Gas: %d (CO KHOI), ", g_mq2_raw);
+            } else {
+                printf("Khi Gas: %d (An Toan), ", g_mq2_raw);
+            }
+            printf("Gia toc: %.2fg\n", total_accel);
+        }
+
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(100)); // Chu kỳ 100ms
     }
 }
 
-// --- TASK NÚT BẤM ---
+// Trình phục vụ ngắt (ISR) cho Button
+static void IRAM_ATTR button_isr_handler(void* arg) {
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    vTaskNotifyGiveFromISR(xButtonTaskHandle, &xHigherPriorityTaskWoken);
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+}
+
+// --- TASK NÚT BẤM (vButtonTask - Priority 2, Event-driven qua Interrupt) ---
 static void vButtonTask(void *pvParameters) {
-    int last_button_state = 1;
     AlarmCmd_t cmd = CMD_TOGGLE_ALARM;
 
     for (;;) {
-        int current_button_state = gpio_get_level(PIN_BUTTON);
+        // Ngủ đông cho đến khi có ngắt phần cứng (Interrupt)
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         
-        if (last_button_state == 1 && current_button_state == 0) {
-            vTaskDelay(pdMS_TO_TICKS(1000)); // Debounce 1 giay theo yeu cau
-            if (gpio_get_level(PIN_BUTTON) == 0) {
-                // Gửi lệnh Toggle qua Queue
-                xQueueSendToBack(xAlarmQueue, &cmd, 0);
-                
-                // Đợi nhả nút (tránh gửi liên tục)
-                while(gpio_get_level(PIN_BUTTON) == 0) {
-                    vTaskDelay(pdMS_TO_TICKS(50));
-                }
+        // Chống rung 1 giây
+        vTaskDelay(pdMS_TO_TICKS(1000)); 
+        
+        if (gpio_get_level(PIN_BUTTON) == 0) {
+            xQueueSendToBack(xAlarmQueue, &cmd, 0);
+            while(gpio_get_level(PIN_BUTTON) == 0) {
+                vTaskDelay(pdMS_TO_TICKS(50));
             }
         }
-        last_button_state = current_button_state;
-        vTaskDelay(pdMS_TO_TICKS(50));
+        
+        // Dọn dẹp ngắt thừa
+        ulTaskNotifyTake(pdTRUE, 0);
     }
 }
 
-// --- TASK ĐIỀU KHIỂN TRUNG TÂM (Xử lý Queue) ---
+// --- TASK ĐIỀU KHIỂN TRUNG TÂM (vControllerTask - Priority 3) ---
 static void vControllerTask(void *pvParameters) {
     bool alarm_on = false;
     AlarmCmd_t received_cmd;
 
     for (;;) {
-        // Đọc lệnh từ Queue (Block mãi mãi nếu Queue rỗng)
         if (xQueueReceive(xAlarmQueue, &received_cmd, portMAX_DELAY) == pdPASS) {
             if (received_cmd == CMD_TRIGGER_ALARM) {
                 if (!alarm_on) {
@@ -190,7 +176,6 @@ static void vControllerTask(void *pvParameters) {
                 }
             }
 
-            // Điều khiển còi thực tế
             gpio_set_level(PIN_BUZZER, alarm_on ? 1 : 0);
         }
     }
@@ -199,17 +184,26 @@ static void vControllerTask(void *pvParameters) {
 void app_main(void) {
     printf("=== HE THONG GIAM SAT (FreeRTOS) ===\n");
 
-    // Khởi tạo GPIO (DHT22, Button, Buzzer)
     gpio_set_direction(PIN_DHT22, GPIO_MODE_INPUT);
     gpio_set_pull_mode(PIN_DHT22, GPIO_PULLUP_ONLY);
-
-    gpio_set_direction(PIN_BUTTON, GPIO_MODE_INPUT);
-    gpio_set_pull_mode(PIN_BUTTON, GPIO_PULLUP_ONLY); 
 
     gpio_set_direction(PIN_BUZZER, GPIO_MODE_OUTPUT);
     gpio_set_level(PIN_BUZZER, 0); 
 
-    // Khởi tạo ADC cho MQ2 (Chân GPIO0 = ADC1_CH0)
+    // Cấu hình Nút bấm dùng ngắt (Interrupt)
+    gpio_config_t btn_conf = {
+        .intr_type = GPIO_INTR_NEGEDGE,
+        .mode = GPIO_MODE_INPUT,
+        .pin_bit_mask = (1ULL << PIN_BUTTON),
+        .pull_up_en = 1,
+        .pull_down_en = 0
+    };
+    gpio_config(&btn_conf);
+    
+    // Đăng ký ngắt cho Button
+    gpio_install_isr_service(0);
+    gpio_isr_handler_add(PIN_BUTTON, button_isr_handler, NULL);
+
     adc_oneshot_unit_init_cfg_t init_config1 = {
         .unit_id = ADC_UNIT_1,
     };
@@ -220,7 +214,6 @@ void app_main(void) {
     };
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHANNEL_0, &config));
 
-    // Khởi tạo I2C & MPU6050
     ESP_ERROR_CHECK(i2cdev_init());
     memset(&mpu, 0, sizeof(mpu6050_dev_t));
     esp_err_t err = mpu6050_init_desc(&mpu, MPU6050_I2C_ADDRESS_LOW, I2C_NUM_0, PIN_I2C_SDA, PIN_I2C_SCL);
@@ -232,16 +225,10 @@ void app_main(void) {
         mpu6050_init(&mpu);
     }
 
-    // TẠO QUEUE GIAO TIẾP (Chương 5)
     xAlarmQueue = xQueueCreate(10, sizeof(AlarmCmd_t));
-    if (xAlarmQueue == NULL) {
-        printf("[LOI] Khong the tao Queue!\n");
-        abort();
-    }
 
-    // TẠO CÁC TASK (Chương 4)
-    xTaskCreate(vDhtTask, "DhtTask", 3072, NULL, 1, NULL); // Đã hạ xuống Pri 1
-    xTaskCreate(vButtonTask, "ButtonTask", 2048, NULL, 2, NULL); // Đã hạ xuống Pri 2
-    xTaskCreate(vFastSensorTask, "FastSensor", 3072, NULL, 3, NULL); // Giữ nguyên Pri 3
-    xTaskCreate(vControllerTask, "CtrlTask", 2048, NULL, 4, NULL); // Cao nhất Pri 4
+    // TẠO TASK (Khớp 100% với bảng)
+    xTaskCreate(vSensorTask, "SensorTask", 4096, NULL, 1, NULL); 
+    xTaskCreate(vButtonTask, "ButtonTask", 2048, NULL, 2, &xButtonTaskHandle); 
+    xTaskCreate(vControllerTask, "CtrlTask", 2048, NULL, 3, NULL); 
 }
