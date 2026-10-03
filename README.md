@@ -31,6 +31,13 @@ Hệ thống sử dụng cơ chế **Pre-emptive Scheduling**, gồm 3 Task ch�
 
 ### 📊 Biểu đồ thời gian (Timing Diagram)
 
+**1. Mô hình lý thuyết (Figure 4.18 - FreeRTOS Task Management):**
+Hệ thống được thiết kế bám sát chặt chẽ theo mô hình lý thuyết Pre-emption của FreeRTOS, trong đó các Task xử lý sự kiện (Event-driven) ở mức ưu tiên cao sẽ luôn được phép cắt ngang (Pre-empt) các Task định kỳ (Periodic) ở mức ưu tiên thấp hơn để đảm bảo độ trễ bằng 0.
+
+![FreeRTOS Theory](docs/freertos_theory.png)
+
+**2. Biểu đồ mô phỏng thực tế của Đồ án (Áp dụng lý thuyết trên):**
+
 ```mermaid
 gantt
     title Biểu đồ mô phỏng Thời gian thực thi & Pre-emption (Hệ thống Báo Cháy)
