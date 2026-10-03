@@ -1,0 +1,9 @@
+# Thư mục build của ESP-IDF
+build/
+managed_components/
+dependencies.lock
+.vscode/
+
+# Thư mục rác của OS
+.DS_Store
+Thumbs.db

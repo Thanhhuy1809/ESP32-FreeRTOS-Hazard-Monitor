@@ -1,0 +1,301 @@
+HỆ THỐNG GIÁM SÁT VÀ CẢNH BÁOĐA NGUY CƠ TRONG HẦM MỎSỬ DỤNG FreeRTOS
+Tài liệu bàn giao ý tưởng, kiến trúc phần cứng và thiết kế Task/Queue
+Phạm vi kiến thức: FreeRTOS Kernel Book - Chapter 4 và Chapter 5 đến mục 5.6
+Lưu ý phạm vi sử dụng
+Đây là prototype học thuật để nghiên cứu kiến trúc đa nhiệm, Task/Queue và logic cảnh báo. Các module ESP32, MQ-4, breadboard và cảm biến dùng trong prototype không phải thiết bị đạt chứng nhận chống nổ/IECEx và không được triển khai trực tiếp trong hầm mỏ có nguy cơ cháy nổ.
+1. Mục tiêu và phạm vi hệ thống
+Hệ thống có nhiệm vụ giám sát đồng thời nhiều nhóm nguy cơ tại một điểm trong hầm mỏ: methane (CH4), carbon monoxide (CO), nhiệt độ/độ ẩm, rung chấn bất thường và yêu cầu khẩn cấp từ người vận hành. Khi có dấu hiệu bất thường, hệ thống đánh giá mức nguy cơ và phát cảnh báo bằng còi, đèn đỏ và màn hình OLED.
+Giám sát khí methane (CH4) - nguy cơ khí cháy/nổ.
+Giám sát carbon monoxide (CO) - khí độc và chỉ dấu liên quan đến cháy không hoàn toàn.
+Giám sát nhiệt độ và độ ẩm môi trường.
+Phát hiện rung động/rung chấn bất thường tại vị trí đặt thiết bị; không tuyên bố phát hiện hoặc dự báo động đất.
+Nút Emergency cho phép kích hoạt báo động thủ công; nút ACK xác nhận đã nhận biết cảnh báo.
+Cảnh báo bằng buzzer, LED đỏ và OLED.
+Phần mềm tổ chức bằng Task, priority, trạng thái Running/Ready/Blocked, Queue và Queue Set đúng phạm vi Ch4-Ch5.6.
+Điểm nhấn FreeRTOS
+Ba luồng độc lập qAtmosphere, qVibration và qUserEvent được đưa vào một Queue Set. SafetyControlTask có thể Block chờ bất kỳ nguồn nào phát sinh dữ liệu/sự kiện, thay vì polling liên tục từng Queue.
+2. Kiến trúc tổng thể
+Hình 1. Kiến trúc Task/Queue đề xuất cho hệ thống.
+Thiết kế tách rõ ba lớp: (1) thu thập dữ liệu/sự kiện, (2) đánh giá an toàn, và (3) xuất cảnh báo/hiển thị. SafetyControlTask không đọc trực tiếp phần cứng và cũng không điều khiển GPIO trực tiếp; nó chỉ nhận dữ liệu từ Queue, đánh giá hazard và phát lệnh tới các Task đầu ra.
+3. Danh sách linh kiện (BOM)
+STT
+Linh kiện
+SL
+Ý nghĩa / chức năng
+Khả năng tìm mua
+1
+ESP32-C3 DevKitM-1
+1
+MCU trung tâm, chạy FreeRTOS; ADC, I2C, GPIO.
+Rất dễ
+2
+MQ-4 module
+1
+Prototype phát hiện methane CH4.
+Rất dễ
+3
+ZE07-CO
+1
+Đo CO bằng cảm biến điện hóa; đầu ra DAC/UART.
+Trung bình
+4
+SHT31 module
+1
+Đo nhiệt độ và độ ẩm.
+Dễ
+5
+ADXL345 module
+1
+Gia tốc kế 3 trục để phát hiện rung bất thường.
+Rất dễ
+6
+OLED SSD1306 I2C 0.96 inch
+1
+Hiển thị thông số và trạng thái hazard.
+Rất dễ
+7
+Active buzzer module
+1
+Cảnh báo âm thanh.
+Rất dễ
+8
+LED đỏ + R 330 ohm
+1
+Cảnh báo trực quan.
+Rất dễ
+9
+Push button
+2
+Emergency và ACK.
+Rất dễ
+10
+R 15 kohm + 10 kohm
+1 bộ
+Chia áp tín hiệu analog MQ-4 trước ADC ESP32-C3.
+Rất dễ
+11
+Breadboard + jumper
+1 bộ
+Lắp prototype.
+Rất dễ
+12
+Nguồn 5 V / 2 A
+1
+Cấp ESP32 và sensor heater/module.
+Rất dễ
+Ghi chú: nếu khó mua ZE07-CO, có thể dùng MQ-7/MQ-7B để demo nhưng phần heater phức tạp hơn; MQ-7B cần chu kỳ heater 5 V/1.5 V theo datasheet. Với bài giữa kỳ, ZE07-CO giúp giảm đáng kể phần điều khiển heater và calibration.
+4. Đấu nối phần cứng
+4.1. Phân bổ GPIO đề xuất
+GPIO ESP32-C3
+Kết nối
+Ghi chú
+GPIO0
+MQ-4 analog qua cầu chia áp
+ADC
+GPIO1
+ZE07-CO DAC
+ADC
+GPIO3
+Emergency button
+INPUT_PULLUP
+GPIO4
+ACK button
+INPUT_PULLUP
+GPIO5
+LED đỏ qua 330 ohm
+Output
+GPIO6
+I2C SDA
+SHT31 + ADXL345 + OLED dùng chung bus
+GPIO7
+I2C SCL
+SHT31 + ADXL345 + OLED dùng chung bus
+GPIO10
+Active buzzer module
+Output
+4.2. MQ-4 - methane
+MQ-4 dùng heater 5 V và cho tín hiệu analog. Để bảo vệ ADC ESP32-C3, không nối AO trực tiếp vào GPIO0. Dùng cầu chia áp:
+MQ-4 AO -> 15 kohm -> nút đo -> GPIO0Nút đo -> 10 kohm -> GNDMQ-4 VCC -> 5 V; GND -> GND
+Tỉ số chia áp là 10/(15+10)=0,4. Nếu phía MQ-4 đạt 5 V thì ADC nhận khoảng 2,0 V. Đây là cấu hình an toàn hơn cho prototype. Việc quy đổi sang ppm chính xác cần calibration; giai đoạn đầu nên làm việc với ADC raw/normalized gas level.
+4.3. ZE07-CO - carbon monoxide
+ZE07-CO VIN -> 5 VZE07-CO GND -> GNDZE07-CO DAC -> GPIO1 (ADC)
+ZE07-CO thuận tiện cho bài giữa kỳ vì module điện hóa có đầu ra DAC khoảng 0,4-2,0 V và không cần chu kỳ heater điều khiển như MQ-7B.
+4.4. Bus I2C: SHT31 + ADXL345 + OLED
+ESP32-C3 GPIO6 (SDA) -> SDA của SHT31, ADXL345, OLEDESP32-C3 GPIO7 (SCL) -> SCL của SHT31, ADXL345, OLEDVCC các module I2C -> 3,3 V; GND -> GND
+Ba thiết bị dùng chung I2C vì có địa chỉ khác nhau. Cần kiểm tra địa chỉ thực tế của module khi khởi tạo; ADXL345 thường dùng 0x53 khi chân SDO ở mức thấp.
+4.5. Nút Emergency, ACK và đầu ra cảnh báo
+Emergency: GPIO3, nút nối xuống GND, dùng INPUT_PULLUP.
+ACK: GPIO4, nút nối xuống GND, dùng INPUT_PULLUP.
+LED đỏ: GPIO5 -> điện trở 330 ohm -> LED -> GND.
+Buzzer: GPIO10 -> module buzzer. Nếu buzzer rời cần dòng lớn, dùng transistor/module driver thay vì kéo trực tiếp bằng GPIO.
+Nguồn chung
+Nguồn 5 V cấp cho ESP32-C3, MQ-4 và ZE07-CO; ESP32-C3 cung cấp 3,3 V cho SHT31, ADXL345 và OLED. Tất cả GND phải nối chung. Không cấp đồng thời nhiều nguồn độc lập vào board ESP32-C3 nếu không hiểu rõ đường nguồn của DevKit.
+5. Các chức năng của hệ thống
+F1 - Giám sát khí methane: Đọc mức CH4 định kỳ. Khi giá trị vượt threshold demo, đặt cờ HAZARD_CH4 và kích hoạt cảnh báo tương ứng.
+F2 - Giám sát CO: Đọc CO định kỳ. CO tăng bất thường tạo HAZARD_CO; không dùng prototype để tuyên bố giới hạn an toàn pháp lý.
+F3 - Giám sát nhiệt độ/độ ẩm: SHT31 cung cấp thông tin môi trường và hỗ trợ đánh giá nguy cơ. Nhiệt độ cao không tự động đồng nghĩa với cháy.
+F4 - Phát hiện rung bất thường: Đọc ADXL345 theo chu kỳ nhanh hơn, tính đại lượng rung đơn giản từ Ax/Ay/Az và phát HAZARD_VIB khi vượt ngưỡng demo.
+F5 - Báo động thủ công: Emergency button tạo sự kiện ưu tiên để hệ thống chuyển ngay sang trạng thái báo động.
+F6 - Acknowledge: ACK tắt/giảm cảnh báo âm thanh sau khi người vận hành đã nhận biết; không xóa hazard đang còn tồn tại.
+F7 - Cảnh báo đa kênh: Buzzer + LED đỏ + OLED thể hiện hazard và mức cảnh báo.
+6. Thiết kế Task theo Chapter 4
+Task
+Priority
+Chu kỳ / kích hoạt
+Nhiệm vụ
+AtmosphereTask
+2
+~1 s, vTaskDelayUntil()
+Đọc MQ-4, ZE07-CO, SHT31; đóng gói AtmosphereData_t và gửi qAtmosphere.
+VibrationTask
+3
+Ví dụ 20 ms/sample
+Đọc ADXL345; tính metric rung; gửi VibrationData_t vào qVibration.
+UserInputTask
+3
+20-50 ms
+Debounce Emergency/ACK; gửi UserEvent_t vào qUserEvent.
+SafetyControlTask
+4
+Event-driven
+Block trên Queue Set; đánh giá hazard; phát qAlarmCommand và qDisplay.
+AlarmOutputTask
+3
+Event-driven
+Block trên qAlarmCommand; điều khiển buzzer và LED đỏ.
+DisplayTask
+1
+Event-driven
+Block trên qDisplay; cập nhật OLED; priority thấp vì hiển thị không time-critical.
+6.1. Liên hệ trạng thái Task
+Ví dụ AtmosphereTask: RUNNING -> đọc sensor và xQueueSend() -> gọi vTaskDelayUntil() -> BLOCKED -> hết chu kỳ -> READY -> khi scheduler chọn -> RUNNING. Tương tự, SafetyControlTask phần lớn thời gian ở BLOCKED do chờ Queue Set; khi một member queue có dữ liệu, task chuyển sang READY và vì priority cao (P4) có thể preempt task thấp hơn.
+7. Thiết kế Queue và Queue Set theo Chapter 5 đến 5.6
+Queue
+Producer
+Consumer
+Length gợi ý
+Kiểu item
+qAtmosphere
+AtmosphereTask
+SafetyControlTask
+3
+AtmosphereData_t
+qVibration
+VibrationTask
+SafetyControlTask
+3
+VibrationData_t
+qUserEvent
+UserInputTask
+SafetyControlTask
+4
+UserEvent_t
+qAlarmCommand
+SafetyControlTask
+AlarmOutputTask
+3
+AlarmCommand_t
+qDisplay
+SafetyControlTask
+DisplayTask
+3
+DisplayData_t
+7.1. Queue Set
+Queue Set gồm qAtmosphere, qVibration và qUserEvent. Nếu ba Queue có length 3, 3 và 4 thì nên tạo Queue Set với capacity tối thiểu 10 để đủ chứa tổng số event tối đa của các member queue.
+qAtmosphere + qVibration + qUserEvent -> xSafetyQueueSet -> SafetyControlTask
+SafetyControlTask gọi xQueueSelectFromSet(). Khi chưa có dữ liệu, task Blocked và không tiêu tốn CPU. Khi một member queue có dữ liệu, hàm trả về handle của queue đang sẵn sàng; task sau đó xQueueReceive() đúng queue đó.
+7.2. Queue by copy
+Các struct của đề tài nhỏ nên truyền trực tiếp bằng queue-by-copy. Ví dụ xQueueSend(qAtmosphere, &data, 0) làm FreeRTOS copy item vào storage của Queue; consumer nhận một snapshot hoàn chỉnh thay vì cùng truy cập một biến global.
+8. Cấu trúc dữ liệu gợi ý
+AtmosphereData_t
+typedef struct {    float methane;    float carbonMonoxide;    float temperature;    float humidity;} AtmosphereData_t;
+VibrationData_t
+typedef struct {    float peakAcceleration;    bool abnormal;} VibrationData_t;
+UserEvent_t
+typedef enum { EVENT_EMERGENCY, EVENT_ACK } UserEventType_t;typedef struct {    UserEventType_t type;} UserEvent_t;
+Hazard flags
+#define HAZARD_CH4     0x01#define HAZARD_CO      0x02#define HAZARD_TEMP    0x04#define HAZARD_VIB     0x08#define HAZARD_MANUAL  0x10
+Dùng hazard flags tốt hơn một biến state duy nhất vì nhiều nguy cơ có thể tồn tại đồng thời, ví dụ CH4 cao và rung bất thường cùng lúc.
+9. Cách hệ thống hoạt động
+9.1. Khởi động
+Khởi tạo ADC, I2C, sensor, OLED và GPIO.
+Tạo 5 Queue.
+Tạo Queue Set và thêm qAtmosphere, qVibration, qUserEvent.
+Tạo 6 Task với priority đã thiết kế.
+Scheduler bắt đầu; các Task event-driven Block cho tới khi có dữ liệu.
+9.2. Chế độ bình thường
+AtmosphereTask gửi dữ liệu môi trường theo chu kỳ; VibrationTask gửi thông tin rung; SafetyControlTask lần lượt nhận các update và duy trì hazardFlags = 0. OLED hiển thị SAFE; buzzer và LED đỏ tắt.
+9.3. Khi methane tăng
+MQ-4 -> AtmosphereTask -> qAtmosphere -> Queue Set -> SafetyControlTask -> HAZARD_CH4 -> qAlarmCommand + qDisplay -> Buzzer/LED/OLED
+Điểm FreeRTOS cần phân tích: SafetyControlTask đang BLOCKED trên Queue Set; khi qAtmosphere có item, task chuyển READY và vì có priority cao nhất P4 sẽ được scheduler ưu tiên chạy.
+9.4. Khi rung bất thường
+ADXL345 -> VibrationTask -> qVibration -> Queue Set -> SafetyControlTask -> HAZARD_VIB -> cảnh báo
+Prototype chỉ phát hiện rung bất thường tại điểm đặt cảm biến. Không dùng thuật ngữ dự báo động đất hoặc hệ thống microseismic chuyên dụng.
+9.5. Khi nhấn Emergency
+Emergency button -> UserInputTask P3 -> qUserEvent -> Queue Set -> SafetyControlTask P4 -> Manual Emergency -> Buzzer + LED + OLED
+Đây là tình huống tốt để giải thích preemptive scheduling: nếu DisplayTask P1 đang chạy, SafetyControlTask P4 trở thành Ready sau event và có thể preempt DisplayTask.
+9.6. Khi nhấn ACK
+ACK thể hiện người vận hành đã nhận biết cảnh báo. Hệ thống có thể tắt buzzer nhưng vẫn giữ LED/OLED báo hazard cho đến khi nguồn nguy cơ thực sự trở lại bình thường. Không được dùng ACK để xóa hazard đang còn tồn tại.
+10. Logic mức cảnh báo
+Không lấy ngưỡng pháp lý của một quốc gia hoặc một loại mỏ và gắn trực tiếp vào prototype. Trong bài giữa kỳ, các threshold phải được ghi rõ là demo/configurable threshold.
+Mức
+Điều kiện demo
+Phản ứng
+SAFE
+Tất cả biến nằm trong vùng bình thường
+LED/buzzer tắt; OLED SAFE
+WARNING
+Một tham số vượt warning threshold
+OLED cảnh báo; có thể LED đỏ/nháy tùy thiết kế
+DANGER
+Gas/rung vượt critical threshold
+Buzzer + LED đỏ + OLED DANGER
+EMERGENCY
+Emergency button hoặc tổ hợp hazard nghiêm trọng
+Cảnh báo tối đa; giữ trạng thái cho tới khi hazard được xử lý/ACK theo logic thiết kế
+11. Kế hoạch triển khai thực tế
+Phase 1: ESP32-C3 + OLED + Queue/Task cơ bản; dùng giá trị giả lập.
+Phase 2: Tích hợp SHT31 + ADXL345; kiểm thử I2C và periodic tasks.
+Phase 3: Tích hợp MQ-4 + ZE07-CO; xử lý ADC và warm-up/calibration cơ bản.
+Phase 4: Hoàn thiện SafetyControlTask, Queue Set, hazard flags, ACK/Emergency.
+Phase 5: Đóng hộp prototype, kiểm thử kịch bản và chuẩn bị slide/sequence diagram.
+Khuyến nghị demo an toàn
+Không xả LPG/methane hoặc khí dễ cháy trong lớp để kích hoạt MQ-4. Có thể thêm chế độ DEMO bằng biến trở hoặc giá trị software để giả lập Normal -> Warning -> Danger. Điều này cho phép trình bày đầy đủ logic FreeRTOS mà không tạo nguy cơ cháy nổ.
+12. Các câu hỏi thầy có thể hỏi
+Q: Tại sao cần RTOS?
+A: Các chức năng có chu kỳ khác nhau, mức ưu tiên khác nhau và có event bất đồng bộ. RTOS cho phép tách thành Task, Block khi không có việc và scheduler ưu tiên sự kiện quan trọng.
+Q: Tại sao SafetyControlTask có priority cao nhất?
+A: Vì đây là nơi ra quyết định an toàn; khi có gas/vibration/emergency event nó cần được xử lý trước DisplayTask.
+Q: Tại sao dùng Queue thay vì biến global?
+A: Queue truyền snapshot dữ liệu theo cơ chế copy, tách producer-consumer và cho phép task Block chờ data thay vì polling.
+Q: Tại sao dùng Queue Set?
+A: SafetyControlTask phải chờ ba Queue có dữ liệu/sự kiện khác loại và khác tốc độ. Queue Set cho phép Block trên nhiều Queue mà không polling.
+Q: Tại sao không dùng một Queue duy nhất?
+A: Hoàn toàn có thể. Một event queue chung có thể gọn hơn. Thiết kế này giữ ba interface độc lập vì item type/tốc độ khác nhau và dùng Queue Set để minh họa đúng ch05.6.
+Q: MPU/ADXL có phát hiện động đất không?
+A: Không. Prototype chỉ phát hiện rung bất thường cục bộ; hệ seismic monitoring thật cần sensor/network chuyên dụng.
+Q: MQ-4 có dùng thật trong hầm mỏ được không?
+A: Không với module/breadboard thông thường. Thiết bị thực trong vùng có nguy cơ nổ phải đáp ứng yêu cầu/chứng nhận chống nổ phù hợp.
+13. Giới hạn và lưu ý an toàn
+ESP32 DevKit, breadboard, MQ-4 module và dây jumper không phải phần cứng Ex/IECEx certified.
+Prototype không được mang vào môi trường hầm mỏ có methane/firedamp thật.
+Ngưỡng trong demo không được trình bày như tiêu chuẩn an toàn hầm mỏ.
+MQ-4 cần warm-up và calibration; giá trị ADC raw không đồng nghĩa trực tiếp với ppm chính xác.
+Rung từ ADXL345 là local abnormal vibration detection, không phải earthquake prediction.
+Bản giữa kỳ không nên mở rộng sang Wi-Fi, LoRa, cloud, MQTT, camera hay AI nếu chưa hoàn thiện Task/Queue cốt lõi.
+14. Tài liệu tham khảo chính
+FreeRTOS Kernel Book - Chapter 4: Task Management
+FreeRTOS Kernel Book - Chapter 5: Queue Management
+FreeRTOS Kernel Book repository
+ESP32-C3 DevKitM-1 User Guide - Espressif
+MQ-4 - Winsen
+ZE07-CO - Winsen
+SHT31 - Sensirion
+ADXL345 - Analog Devices
+NIOSH - Fires and Explosions in Mines
+NIOSH - Rockbursts / Seismic Monitoring
+IECEx
+15. Cấu hình chốt đề xuất
+Prototype giữa kỳ
+INPUT: MQ-4 + ZE07-CO + SHT31 + ADXL345 + Emergency/ACK.FREERTOS: 6 Task, 5 Queue, 1 Queue Set.OUTPUT: Buzzer + LED đỏ + OLED.TRỌNG TÂM BÁO CÁO: Task priority, Running/Ready/Blocked, periodic task, queue-by-copy, blocking, nhiều nguồn dữ liệu và Queue Set.
+Cấu hình này đủ lớn để thể hiện đúng kiến thức Chapter 4 và Chapter 5 đến mục 5.6, nhưng vẫn có thể hoàn thiện trong phạm vi một đề tài giữa kỳ nếu nhóm triển khai theo từng phase và không mở rộng sang hệ thống truyền thông/cloud trước khi phần Task/Queue hoạt động ổn định.
