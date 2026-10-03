@@ -139,8 +139,8 @@ static void vButtonTask(void *pvParameters) {
         // Ngủ đông cho đến khi có ngắt phần cứng (Interrupt)
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
         
-        // Chống rung 1 giây
-        vTaskDelay(pdMS_TO_TICKS(1000)); 
+        // Chống rung 50ms (Đã trả lại tốc độ bấm nhạy như chớp)
+        vTaskDelay(pdMS_TO_TICKS(50)); 
         
         if (gpio_get_level(PIN_BUTTON) == 0) {
             xQueueSendToBack(xAlarmQueue, &cmd, 0);
@@ -200,9 +200,9 @@ void app_main(void) {
     };
     gpio_config(&btn_conf);
     
-    // Đăng ký ngắt cho Button
+    // Đăng ký dịch vụ ngắt cho toàn hệ thống
     gpio_install_isr_service(0);
-    gpio_isr_handler_add(PIN_BUTTON, button_isr_handler, NULL);
+    // Lưu ý: Đã chuyển gpio_isr_handler_add xuống cuối app_main để tránh lỗi NULL Handle
 
     adc_oneshot_unit_init_cfg_t init_config1 = {
         .unit_id = ADC_UNIT_1,
@@ -231,4 +231,7 @@ void app_main(void) {
     xTaskCreate(vSensorTask, "SensorTask", 4096, NULL, 1, NULL); 
     xTaskCreate(vButtonTask, "ButtonTask", 2048, NULL, 2, &xButtonTaskHandle); 
     xTaskCreate(vControllerTask, "CtrlTask", 2048, NULL, 3, NULL); 
+    
+    // Gắn hàm ngắt sau khi Task Handle đã được tạo để tránh Crash (Guru Meditation Error)
+    gpio_isr_handler_add(PIN_BUTTON, button_isr_handler, NULL);
 }
