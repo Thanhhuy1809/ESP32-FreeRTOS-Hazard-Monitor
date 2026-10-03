@@ -91,7 +91,8 @@ static void vSensorTask(void *pvParameters) {
         float total_accel = 1.0f;
         if (mpu6050_get_acceleration(&mpu, &accel) == ESP_OK) {
             total_accel = sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z);
-            if (total_accel > VIBRATION_THRESHOLD || total_accel < 0.5f) hazard_detected = true;
+            // Chỉ báo rung khi gia tốc CAO (rung mạnh), bỏ qua trường hợp 0.0g (lỗi cảm biến)
+            if (total_accel > VIBRATION_THRESHOLD) hazard_detected = true;
         }
 
         if (hazard_detected) {
