@@ -71,6 +71,10 @@ static bool prvDht22Read(float *temperature, float *humidity) {
 }
 
 // --- CONSOLIDATED SENSOR TASK (vSensorTask - Priority 1, Period: 100ms) ---
+static float cached_temp = 0.0f;   // Cached DHT22 temperature
+static float cached_hum  = 0.0f;   // Cached DHT22 humidity
+static bool  dht_ok = false;       // DHT22 read status
+
 static void vSensorTask(void *pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
     AlarmCmd_t cmd = CMD_TRIGGER_ALARM;
@@ -83,7 +87,10 @@ static void vSensorTask(void *pvParameters) {
         int adc_raw = 0;
         if (adc_oneshot_read(adc1_handle, ADC_CHANNEL_0, &adc_raw) == ESP_OK) {
             g_mq2_raw = adc_raw;
-            if (adc_raw > MQ2_ADC_THRESHOLD) hazard_detected = true;
+            if (adc_raw > MQ2_ADC_THRESHOLD) {
+                hazard_detected = true;
+                printf("[HAZARD] Smoke Detected! Gas ADC = %d -> TRIGGER ALARM!\n", adc_raw);
+            }
         }
 
         // 2. Read MPU6050 Accelerometer (Every 100ms)
@@ -91,8 +98,10 @@ static void vSensorTask(void *pvParameters) {
         float total_accel = 1.0f;
         if (mpu6050_get_acceleration(&mpu, &accel) == ESP_OK) {
             total_accel = sqrt(accel.x * accel.x + accel.y * accel.y + accel.z * accel.z);
-            // Trigger vibration alarm only on strong vibration (> 1.5g), ignore sensor 0.0g read errors
-            if (total_accel > VIBRATION_THRESHOLD) hazard_detected = true;
+            if (total_accel > VIBRATION_THRESHOLD) {
+                hazard_detected = true;
+                printf("[HAZARD] Shock Detected! Peak Accel = %.2fg -> TRIGGER ALARM!\n", total_accel);
+            }
         }
 
         // Send alarm trigger command to Queue if hazard detected
@@ -100,27 +109,36 @@ static void vSensorTask(void *pvParameters) {
             xQueueSendToBack(xAlarmQueue, &cmd, 0); 
         }
 
-        // 3. Read DHT22 (Time-slicing counter: 20 * 100ms = 2000ms)
+        // 3. Read DHT22 with time-slicing counter (20 * 100ms = 2000ms)
         dht_counter++;
         if (dht_counter >= 20) {
             dht_counter = 0;
             float temp = 0.0f, hum = 0.0f;
             if (prvDht22Read(&temp, &hum)) {
-                printf("[INFO] Temp: %.1f C, Humidity: %.1f %%, ", temp, hum);
+                cached_temp = temp;
+                cached_hum  = hum;
+                dht_ok = true;
                 if (temp > 60.0f) {
-                    printf("\n[DHT22] FIRE ALARM! HIGH TEMPERATURE: %.1f C\n", temp);
+                    printf("[HAZARD] FIRE! High Temperature = %.1f C -> TRIGGER ALARM!\n", temp);
                     xQueueSendToBack(xAlarmQueue, &cmd, 0);
                 }
             } else {
-                printf("[INFO] DHT22 Read Error, ");
+                dht_ok = false;
             }
-            if (g_mq2_raw > MQ2_ADC_THRESHOLD) {
-                printf("Gas: %d (SMOKE DETECTED), ", g_mq2_raw);
-            } else {
-                printf("Gas: %d (SAFE), ", g_mq2_raw);
-            }
-            printf("Accel: %.2fg\n", total_accel);
         }
+
+        // 4. Print real-time status EVERY 100ms (DHT22 uses cached values)
+        if (dht_ok) {
+            printf("[INFO] Temp: %.1f C, Humidity: %.1f %%, ", cached_temp, cached_hum);
+        } else {
+            printf("[INFO] DHT22 Read Error, ");
+        }
+        if (g_mq2_raw > MQ2_ADC_THRESHOLD) {
+            printf("Gas: %d (SMOKE DETECTED), ", g_mq2_raw);
+        } else {
+            printf("Gas: %d (SAFE), ", g_mq2_raw);
+        }
+        printf("Accel: %.2fg\n", total_accel);
 
         vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(100)); // 100ms periodic cycle
     }
