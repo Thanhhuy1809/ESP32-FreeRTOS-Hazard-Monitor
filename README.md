@@ -46,7 +46,10 @@ Thermal test on DHT22 sensor with temperature reaching 73.2°C, successfully tri
 ![Fire Alarm Test](docs/test_fire_alarm.png)
 
 ### 4. Manual Alarm Control (Button Interrupt)
-Long pressing the push button manually deactivates/mutes the alarm:
+Long pressing the push button toggles the alarm state:
+- Manual Activation:
+![Button Activate Test](docs/test_button_activate.png)
+- Manual Deactivation / Mute:
 ![Button Mute Test](docs/test_button_mute.png)
 
 ## Build and Flash Instructions (ESP-IDF v5)
