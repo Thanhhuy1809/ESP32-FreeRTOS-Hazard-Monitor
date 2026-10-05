@@ -1,9 +1,15 @@
-# Thư mục build của ESP-IDF
+# ESP-IDF build & dependencies
 build/
 managed_components/
 dependencies.lock
 .vscode/
+sdkconfig.old
 
-# Thư mục rác của OS
+# OS junk
 .DS_Store
 Thumbs.db
+
+# Local reports and personal draft files
+*.docx
+*.txt
+freertos_timing_diagram.md
