@@ -7,7 +7,7 @@ Hệ thống được thiết kế chuẩn cấu trúc FreeRTOS (Task & Queue Ma
 - **Giám sát Môi trường (DHT22):** Theo dõi Nhiệt độ và Độ ẩm.
 - **Cảnh báo Cháy / Khí Gas (MQ2):** Đọc nồng độ Gas qua bộ chuyển đổi ADC (Analog-to-Digital). Tự động hú còi khi vượt ngưỡng an toàn (Mặc định: 2000). Tích hợp cảnh báo cháy nếu Nhiệt độ > 60°C.
 - **Cảnh báo Rung chấn (MPU6050):** Theo dõi gia tốc kế qua chuẩn giao tiếp I2C. Báo động tức thời khi phát hiện rung lắc mạnh (Magnitude > 1.5g).
-- **Hệ thống Cảnh báo Thủ công (Button & Buzzer):** Sử dụng Nút bấm có tích hợp chống nhiễu (Debounce 1 giây) để chủ động bật/tắt còi báo động.
+- **Hệ thống Cảnh báo Thủ công (Button & Buzzer):** Sử dụng Nút bấm có tích hợp chống nhiễu (Debounce 500ms) để chủ động bật/tắt còi báo động.
 
 ## 🔌 Sơ đồ đấu nối (Pinout)
 | Thiết bị | Chân thiết bị | Chân ESP32-C3 | Ghi chú |
