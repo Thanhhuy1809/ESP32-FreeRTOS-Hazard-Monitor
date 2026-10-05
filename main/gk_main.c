@@ -78,7 +78,7 @@ static bool  dht_ok = false;       // DHT22 read status
 static void vSensorTask(void *pvParameters) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
     AlarmCmd_t cmd = CMD_TRIGGER_ALARM;
-    int dht_counter = 0;
+    int dht_counter = 19; // Start at 19 so it reads DHT22 immediately on first cycle
 
     for (;;) {
         bool hazard_detected = false;
@@ -117,21 +117,21 @@ static void vSensorTask(void *pvParameters) {
             if (prvDht22Read(&temp, &hum)) {
                 cached_temp = temp;
                 cached_hum  = hum;
-                dht_ok = true;
+                dht_ok = true; // Successfully received DHT22 data
                 if (temp > 60.0f) {
                     printf("[HAZARD] FIRE! High Temperature = %.1f C -> TRIGGER ALARM!\n", temp);
                     xQueueSendToBack(xAlarmQueue, &cmd, 0);
                 }
             } else {
-                dht_ok = false;
+                dht_ok = false; // Failed to receive -> set to ERROR
             }
         }
 
-        // 4. Print real-time status EVERY 100ms (DHT22 uses cached values)
+        // 4. Print real-time status EVERY 100ms (Show Temp/Hum only when valid, otherwise ERROR)
         if (dht_ok) {
             printf("[INFO] Temp: %.1f C, Humidity: %.1f %%, ", cached_temp, cached_hum);
         } else {
-            printf("[INFO] DHT22 Read Error, ");
+            printf("[INFO] DHT22: ERROR, ");
         }
         if (g_mq2_raw > MQ2_ADC_THRESHOLD) {
             printf("Gas: %d (SMOKE DETECTED), ", g_mq2_raw);
