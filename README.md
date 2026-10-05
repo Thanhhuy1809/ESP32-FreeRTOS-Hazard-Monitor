@@ -64,10 +64,25 @@ gantt
     Chạy nền                               :10, 2s
 ```
 
-## 🚀 Kết quả Terminal
-Dưới đây là hình ảnh Terminal theo dõi dữ liệu mượt mà, không bị nhiễu (Floating pin đã được xử lý triệt để):
+## 🚀 Kết quả Thực nghiệm & Kiểm thử Phần cứng (Hardware Verification)
 
-![Terminal Output](docs/terminal_output.png)
+Dưới đây là các kết quả đo đạc thực tế trên phần cứng, ghi nhận tại cổng Serial Terminal:
+
+### 1. 🚨 Cảnh báo Khí Gas / Khói (MQ-2 ADC > 2000)
+Hệ thống phát hiện nồng độ khói tăng vọt vượt ngưỡng an toàn ($> 2000$) và lập tức kích hoạt còi báo động:
+![Smoke Alarm Test](docs/test_smoke_alarm.png)
+
+### 2. ⚡ Cảnh báo Rung chấn / Động đất (MPU6050 Peak Accel > 1.5g)
+Gia tốc rung giật mạnh đo được đạt đỉnh tới $2.99g$, hệ thống phát hiện tức thời trong chu kỳ $100\text{ ms}$:
+![Shock Alarm Test](docs/test_shock_alarm.png)
+
+### 3. 🔥 Cảnh báo Hỏa hoạn (DHT22 Nhiệt độ > 60°C)
+Thực nghiệm gia nhiệt cảm biến DHT22, nhiệt độ nhảy vọt lên $73.2^\circ\text{C}$ kích hoạt cảnh báo cháy khẩn cấp:
+![Fire Alarm Test](docs/test_fire_alarm.png)
+
+### 4. 🔘 Điều khiển Tắt/Bật Còi thủ công (Button Interrupt)
+Nhấn giữ nút bấm để tắt còi báo động thủ công, hệ thống chuyển sang trạng thái an toàn:
+![Button Mute Test](docs/test_button_mute.png)
 
 ## 🛠 Hướng dẫn Build và Nạp (ESP-IDF v5)
 ```bash
